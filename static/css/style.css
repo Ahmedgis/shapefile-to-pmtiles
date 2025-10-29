@@ -1,0 +1,88 @@
+/* Main layout */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+}
+
+.container-fluid, .row {
+    height: 100%;
+}
+
+/* Map container */
+#map {
+    width: 100%;
+    height: 100vh;
+}
+
+/* Sidebar styling */
+.sidebar {
+    background-color: #f8f9fa;
+    height: 100vh;
+    overflow-y: auto;
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar h2 {
+    margin-top: 0;
+    color: #343a40;
+}
+
+/* Layer list styling */
+.list-group-item {
+    border-left: none;
+    border-right: none;
+    padding: 0.5rem 0.25rem;
+}
+
+.form-check-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Button styling */
+.btn-primary {
+    background-color: #0d6efd;
+    border-color: #0d6efd;
+    width: 100%;
+}
+
+.btn-primary:hover {
+    background-color: #0b5ed7;
+    border-color: #0a58ca;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .sidebar {
+        background-color: #343a40;
+        color: #f8f9fa;
+    }
+    
+    .sidebar h2 {
+        color: #f8f9fa;
+    }
+    
+    .list-group-item {
+        background-color: #343a40;
+        color: #f8f9fa;
+        border-color: #495057;
+    }
+    
+    .form-check-label {
+        color: #f8f9fa;
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .sidebar {
+        height: auto;
+        max-height: 40vh;
+    }
+    
+    #map {
+        height: 60vh;
+    }
+}
