@@ -1,0 +1,6 @@
+2025-10-29 18:48:42,715 - INFO - Found 1 shapefiles to process
+2025-10-29 18:48:42,715 - INFO - Processing D:\tipper\Urban_Sept\Urban_Sept.shp
+2025-10-29 18:48:44,582 - WARNING - Could not detect CRS for D:\tipper\Urban_Sept\Urban_Sept.shp
+2025-10-29 18:48:44,670 - INFO - Converting D:\tipper\Urban_Sept\Urban_Sept.shp to GeoJSON
+2025-10-29 18:48:44,799 - ERROR - Error converting shapefile to GeoJSON: Command '['ogr2ogr', '-t_srs', 'EPSG:3857', '-f', 'GeoJSON', WindowsPath('D:/Temp/tmp5m4i6n8u/Urban_Sept.geojson'), WindowsPath('D:/tipper/Urban_Sept/Urban_Sept.shp')]' returned non-zero exit status 1.
+2025-10-29 18:48:44,826 - INFO - Conversion complete. 0 files converted.

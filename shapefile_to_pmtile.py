@@ -15,10 +15,8 @@ import argparse
 import tempfile
 import subprocess
 import webbrowser
-import concurrent.futures
 from datetime import datetime
 from pathlib import Path
-from tqdm import tqdm
 from flask import Flask, render_template, jsonify
 
 # Configure logging
@@ -346,4 +344,12 @@ def main():
         start_web_preview(pmtiles_files, config)
 
 if __name__ == "__main__":
-    main()
+    # Simple web server for demo
+    app = Flask(__name__)
+    
+    @app.route('/')
+    def index():
+        return render_template('index.html', pmtiles_files=[])
+    
+    print("Starting web preview server on http://localhost:5000")
+    app.run(host='0.0.0.0', port=5000, debug=True)
