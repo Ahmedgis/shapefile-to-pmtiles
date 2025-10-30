@@ -15,11 +15,18 @@ import argparse
 import tempfile
 import subprocess
 import webbrowser
+import concurrent.futures
 from datetime import datetime
 from pathlib import Path
 from flask import Flask, render_template, jsonify
+from tqdm import tqdm
 
-# Configure logging
+# GDAL tool paths configuration
+GDAL_BIN_PATH = r"C:\Users\ahmed\miniconda3\Library\bin"
+OGRINFO_PATH = os.path.join(GDAL_BIN_PATH, "ogrinfo.exe")
+OGR2OGR_PATH = os.path.join(GDAL_BIN_PATH, "ogr2ogr.exe")
+
+# Setup logging
 def setup_logging():
     """Set up logging configuration"""
     log_dir = Path("logs")
@@ -70,7 +77,7 @@ def load_config():
 def detect_crs(shapefile_path):
     """Detect the coordinate reference system of a shapefile"""
     try:
-        cmd = ["ogrinfo", "-so", shapefile_path]
+        cmd = [OGRINFO_PATH, "-so", shapefile_path]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         
         for line in result.stdout.splitlines():
@@ -88,7 +95,7 @@ def detect_crs(shapefile_path):
 def calculate_zoom_levels(shapefile_path, config):
     """Calculate appropriate min and max zoom levels based on shapefile extent"""
     try:
-        cmd = ["ogrinfo", "-so", "-al", shapefile_path]
+        cmd = [OGRINFO_PATH, "-so", "-al", shapefile_path]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         
         extent = {}
@@ -132,7 +139,7 @@ def calculate_zoom_levels(shapefile_path, config):
 def shapefile_to_geojson(shapefile_path, output_geojson, reproject=True):
     """Convert shapefile to GeoJSON with optional reprojection to Web Mercator"""
     try:
-        cmd = ["ogr2ogr"]
+        cmd = [OGR2OGR_PATH]
         
         if reproject:
             cmd.extend(["-t_srs", "EPSG:3857"])  # Web Mercator
@@ -344,12 +351,4 @@ def main():
         start_web_preview(pmtiles_files, config)
 
 if __name__ == "__main__":
-    # Simple web server for demo
-    app = Flask(__name__)
-    
-    @app.route('/')
-    def index():
-        return render_template('index.html', pmtiles_files=[])
-    
-    print("Starting web preview server on http://localhost:5000")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    main()
