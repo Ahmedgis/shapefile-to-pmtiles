@@ -2,7 +2,7 @@ default_input: "./input"
 default_output: "./output"
 default_min_zoom: 4
 default_max_zoom: 14
-reproject_to_web_mercator: true
+reproject_to_web_mercator: false
 tippecanoe_args:
   - --read-parallel
   - --drop-densest-as-needed
