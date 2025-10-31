@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PMTiles Viewer</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@3.0.0/dist/maplibre-gl.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
 </head>
@@ -17,6 +18,23 @@
                     <h2>PMTiles Viewer</h2>
                     <p>View your converted PMTiles files</p>
                     
+                    <!-- PMTiles File Selector -->
+                    <div class="mb-3">
+                        <label class="form-label">PMTiles Files</label>
+                        <div class="d-flex gap-2 mb-2">
+                            <button id="refresh-files" class="btn btn-outline-primary btn-sm">
+                                <i class="bi bi-arrow-clockwise"></i> Refresh
+                            </button>
+                            <span id="file-count" class="badge bg-secondary">0 files</span>
+                        </div>
+                        <select id="pmtiles-select" class="form-select mb-2">
+                            <option value="">Select a PMTiles file...</option>
+                        </select>
+                        <div class="form-text">
+                            <small>Files from: <code id="output-directory">./output</code></small>
+                        </div>
+                    </div>
+                    
                     <div class="mb-3">
                         <label class="form-label">Map Style</label>
                         <select id="style-select" class="form-select">
@@ -28,23 +46,26 @@
                     </div>
                     
                     <div class="mb-3">
-                        <label class="form-label">Layers</label>
+                        <label class="form-label">Active Layers</label>
                         <div id="layer-list" class="list-group">
-                            {% for pmtiles_file in pmtiles_files %}
-                            <div class="list-group-item">
-                                <div class="form-check">
-                                    <input class="form-check-input layer-toggle" type="checkbox" value="{{ pmtiles_file }}" id="layer-{{ loop.index }}" checked>
-                                    <label class="form-check-label" for="layer-{{ loop.index }}">
-                                        {{ pmtiles_file.split('/')[-1] }}
-                                    </label>
-                                </div>
-                            </div>
-                            {% endfor %}
+                            <!-- Dynamic layer list will be populated here -->
+                        </div>
+                        <div class="form-text mt-2">
+                            <small>Select PMTiles files above to add layers</small>
                         </div>
                     </div>
                     
                     <div class="mb-3">
-                        <button id="fit-bounds" class="btn btn-primary">Fit to Data</button>
+                        <button id="fit-bounds" class="btn btn-primary w-100">Fit to Data</button>
+                        <button id="clear-layers" class="btn btn-outline-danger w-100 mt-2">Clear All Layers</button>
+                    </div>
+                    
+                    <!-- Status Panel -->
+                    <div class="mt-4">
+                        <h6>Status</h6>
+                        <div id="status-panel" class="alert alert-info">
+                            <small>Ready to load PMTiles files</small>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -86,89 +107,365 @@
             map.addControl(new maplibregl.NavigationControl());
             map.addControl(new maplibregl.ScaleControl());
             
-            // PMTiles files from Flask
-            const pmtilesFiles = {{ pmtiles_files|tojson }};
+            // Global variables
+            let pmtilesFiles = [];
+            let activeLayers = new Map();
             let layerBounds = null;
+            let layerCounter = 0;
             
-            // Add PMTiles layers when map loads
-            map.on('load', function() {
-                pmtilesFiles.forEach((pmtilesFile, index) => {
-                    addPMTilesLayer(pmtilesFile, index);
-                });
-                
-                // Fit to bounds if layers are available
-                if (pmtilesFiles.length > 0) {
-                    fitToBounds();
+            // Status update function
+            function updateStatus(message, type = 'info') {
+                const statusPanel = document.getElementById('status-panel');
+                statusPanel.className = `alert alert-${type}`;
+                statusPanel.innerHTML = `<small>${message}</small>`;
+            }
+            
+            // Load PMTiles files from server
+            async function loadPMTilesFiles() {
+                try {
+                    updateStatus('Loading PMTiles files...', 'info');
+                    const response = await fetch('/api/pmtiles');
+                    const data = await response.json();
+                    
+                    pmtilesFiles = data.pmtiles_files || [];
+                    
+                    // Update file count
+                    document.getElementById('file-count').textContent = `${pmtilesFiles.length} files`;
+                    
+                    // Update output directory display
+                    document.getElementById('output-directory').textContent = data.output_directory || './output';
+                    
+                    // Populate dropdown - only show PMTiles files
+                    const select = document.getElementById('pmtiles-select');
+                    select.innerHTML = '<option value="">Select a PMTiles file...</option>';
+                    
+                    // Filter to only show .pmtiles files in the dropdown
+                    const pmtilesOnly = pmtilesFiles.filter(file => file.toLowerCase().endsWith('.pmtiles'));
+                    
+                    pmtilesOnly.forEach((file, index) => {
+                        const option = document.createElement('option');
+                        option.value = file;
+                        option.textContent = file.split('/').pop(); // Just filename
+                        select.appendChild(option);
+                    });
+                    
+                    if (pmtilesFiles.length === 0) {
+                        updateStatus('No data files found in output directory', 'warning');
+                    } else if (pmtilesOnly.length === 0) {
+                        updateStatus(`Found ${pmtilesFiles.length} data files, but no PMTiles files for dropdown`, 'warning');
+                    } else {
+                        updateStatus(`Found ${pmtilesOnly.length} PMTiles files available for selection`, 'success');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error loading PMTiles files:', error);
+                    updateStatus('Error loading PMTiles files', 'danger');
                 }
-            });
+            }
             
-            // Add PMTiles layer function
-            function addPMTilesLayer(pmtilesFile, index) {
-                const layerId = `pmtiles-layer-${index}`;
-                const sourceId = `pmtiles-source-${index}`;
+            // Add PMTiles or GeoJSON layer function
+            function addPMTilesLayer(filePath) {
+                if (activeLayers.has(filePath)) {
+                    updateStatus('Layer already added', 'warning');
+                    return;
+                }
                 
-                // Add source
-                map.addSource(sourceId, {
-                    type: 'vector',
-                    url: `pmtiles://${pmtilesFile}`,
-                    attribution: 'PMTiles'
-                });
+                const layerId = `layer-${layerCounter}`;
+                const sourceId = `source-${layerCounter}`;
+                layerCounter++;
                 
-                // Get source info to determine layer type
-                const source = map.getSource(sourceId);
-                
-                // Add layer with appropriate styling
-                map.addLayer({
-                    id: layerId,
-                    type: 'fill',  // Default to fill, will be updated if needed
-                    source: sourceId,
-                    'source-layer': '0',  // Default source layer
-                    paint: {
-                        'fill-color': getRandomColor(),
-                        'fill-opacity': 0.7,
-                        'fill-outline-color': '#000000'
-                    }
-                });
-                
-                // Also add outline layer for polygons
-                map.addLayer({
-                    id: `${layerId}-outline`,
-                    type: 'line',
-                    source: sourceId,
-                    'source-layer': '0',
-                    paint: {
-                        'line-color': '#000000',
-                        'line-width': 1
-                    }
-                });
-                
-                // Update bounds
-                source.on('data', function(e) {
-                    if (e.sourceDataType === 'metadata') {
-                        const bounds = source.bounds;
-                        if (bounds) {
-                            if (!layerBounds) {
-                                layerBounds = bounds;
-                            } else {
-                                layerBounds = [
-                                    Math.min(layerBounds[0], bounds[0]),
-                                    Math.min(layerBounds[1], bounds[1]),
-                                    Math.max(layerBounds[2], bounds[2]),
-                                    Math.max(layerBounds[3], bounds[3])
-                                ];
+                try {
+                    const fileName = filePath.split('/').pop();
+                    const isGeoJSON = fileName.endsWith('.geojson');
+                    const isPMTiles = fileName.endsWith('.pmtiles');
+                    
+                    if (isGeoJSON) {
+                        // Handle GeoJSON files
+                        fetch(filePath)
+                            .then(response => response.json())
+                            .then(geojsonData => {
+                                // Add GeoJSON source
+                                map.addSource(sourceId, {
+                                    type: 'geojson',
+                                    data: geojsonData
+                                });
+                                
+                                // Determine geometry type and add appropriate layers
+                                const firstFeature = geojsonData.features[0];
+                                if (firstFeature) {
+                                    const geometryType = firstFeature.geometry.type;
+                                    
+                                    if (geometryType === 'Point' || geometryType === 'MultiPoint') {
+                                        // Add circle layer for points
+                                        map.addLayer({
+                                            id: layerId,
+                                            type: 'circle',
+                                            source: sourceId,
+                                            paint: {
+                                                'circle-radius': 8,
+                                                'circle-color': getRandomColor(),
+                                                'circle-opacity': 0.8,
+                                                'circle-stroke-color': '#000000',
+                                                'circle-stroke-width': 2
+                                            }
+                                        });
+                                    } else if (geometryType === 'Polygon' || geometryType === 'MultiPolygon') {
+                                        // Add fill layer for polygons
+                                        map.addLayer({
+                                            id: layerId,
+                                            type: 'fill',
+                                            source: sourceId,
+                                            paint: {
+                                                'fill-color': getRandomColor(),
+                                                'fill-opacity': 0.7
+                                            }
+                                        });
+                                        
+                                        // Add outline layer
+                                        const outlineLayerId = `${layerId}-outline`;
+                                        map.addLayer({
+                                            id: outlineLayerId,
+                                            type: 'line',
+                                            source: sourceId,
+                                            paint: {
+                                                'line-color': '#000000',
+                                                'line-width': 2
+                                            }
+                                        });
+                                    } else {
+                                        // Add line layer for other geometries
+                                        map.addLayer({
+                                            id: layerId,
+                                            type: 'line',
+                                            source: sourceId,
+                                            paint: {
+                                                'line-color': getRandomColor(),
+                                                'line-width': 3
+                                            }
+                                        });
+                                    }
+                                }
+                                
+                                // Store layer info
+                                activeLayers.set(filePath, {
+                                    layerId: layerId,
+                                    outlineLayerId: geometryType === 'Polygon' || geometryType === 'MultiPolygon' ? `${layerId}-outline` : null,
+                                    sourceId: sourceId,
+                                    visible: true,
+                                    bounds: calculateBounds(geojsonData)
+                                });
+                                
+                                // Add to layer list UI
+                                addLayerToUI(filePath, layerId);
+                                
+                                updateStatus(`Added GeoJSON layer: ${fileName}`, 'success');
+                            })
+                            .catch(error => {
+                                console.error('Error loading GeoJSON:', error);
+                                updateStatus(`Error loading GeoJSON: ${error.message}`, 'danger');
+                            });
+                            
+                    } else if (isPMTiles) {
+                        // Handle PMTiles files (original logic)
+                        map.addSource(sourceId, {
+                            type: 'vector',
+                            url: `pmtiles://${filePath}`,
+                            attribution: 'PMTiles'
+                        });
+                        
+                        // Add fill layer
+                        map.addLayer({
+                            id: layerId,
+                            type: 'fill',
+                            source: sourceId,
+                            'source-layer': 'default', // Try 'default' instead of '0'
+                            paint: {
+                                'fill-color': getRandomColor(),
+                                'fill-opacity': 0.7,
+                                'fill-outline-color': '#000000'
                             }
+                        });
+                        
+                        // Add outline layer
+                        const outlineLayerId = `${layerId}-outline`;
+                        map.addLayer({
+                            id: outlineLayerId,
+                            type: 'line',
+                            source: sourceId,
+                            'source-layer': 'default',
+                            paint: {
+                                'line-color': '#000000',
+                                'line-width': 1
+                            }
+                        });
+                        
+                        // Store layer info
+                        activeLayers.set(filePath, {
+                            layerId: layerId,
+                            outlineLayerId: outlineLayerId,
+                            sourceId: sourceId,
+                            visible: true,
+                            bounds: null // PMTiles bounds would need to be calculated differently
+                        });
+                        
+                        // Add to layer list UI
+                        addLayerToUI(filePath, layerId);
+                        
+                        updateStatus(`Added PMTiles layer: ${fileName}`, 'success');
+                    }
+                    
+                } catch (error) {
+                    console.error('Error adding layer:', error);
+                    updateStatus(`Error adding layer: ${error.message}`, 'danger');
+                }
+            }
+            
+            // Calculate bounds from GeoJSON data
+            function calculateBounds(geojsonData) {
+                let minLng = Infinity, minLat = Infinity;
+                let maxLng = -Infinity, maxLat = -Infinity;
+                
+                geojsonData.features.forEach(feature => {
+                    const coords = feature.geometry.coordinates;
+                    
+                    function processCoordsArray(coordsArray) {
+                        if (typeof coordsArray[0] === 'number') {
+                            // Single coordinate pair
+                            const [lng, lat] = coordsArray;
+                            minLng = Math.min(minLng, lng);
+                            maxLng = Math.max(maxLng, lng);
+                            minLat = Math.min(minLat, lat);
+                            maxLat = Math.max(maxLat, lat);
+                        } else {
+                            // Array of coordinates
+                            coordsArray.forEach(processCoordsArray);
                         }
                     }
+                    
+                    processCoordsArray(coords);
                 });
+                
+                return [[minLng, minLat], [maxLng, maxLat]];
+            }
+            
+            // Add layer to UI list
+            function addLayerToUI(pmtilesFile, layerId) {
+                const layerList = document.getElementById('layer-list');
+                const fileName = pmtilesFile.split('/').pop();
+                
+                const layerItem = document.createElement('div');
+                layerItem.className = 'list-group-item';
+                layerItem.id = `layer-ui-${layerId}`;
+                
+                layerItem.innerHTML = `
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="form-check">
+                            <input class="form-check-input layer-toggle" type="checkbox" 
+                                   value="${pmtilesFile}" id="toggle-${layerId}" checked>
+                            <label class="form-check-label" for="toggle-${layerId}">
+                                ${fileName}
+                            </label>
+                        </div>
+                        <button class="btn btn-outline-danger btn-sm remove-layer" 
+                                data-file="${pmtilesFile}" data-layer="${layerId}">
+                            Remove
+                        </button>
+                    </div>
+                `;
+                
+                layerList.appendChild(layerItem);
+                
+                // Add event listeners
+                const checkbox = layerItem.querySelector('.layer-toggle');
+                checkbox.addEventListener('change', function() {
+                    toggleLayerVisibility(pmtilesFile, this.checked);
+                });
+                
+                const removeBtn = layerItem.querySelector('.remove-layer');
+                removeBtn.addEventListener('click', function() {
+                    removeLayer(pmtilesFile);
+                });
+            }
+            
+            // Toggle layer visibility
+            function toggleLayerVisibility(pmtilesFile, visible) {
+                const layerInfo = activeLayers.get(pmtilesFile);
+                if (layerInfo) {
+                    const visibility = visible ? 'visible' : 'none';
+                    map.setLayoutProperty(layerInfo.layerId, 'visibility', visibility);
+                    map.setLayoutProperty(layerInfo.outlineLayerId, 'visibility', visibility);
+                    layerInfo.visible = visible;
+                }
+            }
+            
+            // Remove layer
+            function removeLayer(pmtilesFile) {
+                const layerInfo = activeLayers.get(pmtilesFile);
+                if (layerInfo) {
+                    // Remove from map
+                    map.removeLayer(layerInfo.layerId);
+                    map.removeLayer(layerInfo.outlineLayerId);
+                    map.removeSource(layerInfo.sourceId);
+                    
+                    // Remove from UI
+                    const layerUI = document.getElementById(`layer-ui-${layerInfo.layerId}`);
+                    if (layerUI) {
+                        layerUI.remove();
+                    }
+                    
+                    // Remove from active layers
+                    activeLayers.delete(pmtilesFile);
+                    
+                    updateStatus(`Removed layer: ${pmtilesFile.split('/').pop()}`, 'info');
+                }
+            }
+            
+            // Clear all layers
+            function clearAllLayers() {
+                const filesToRemove = Array.from(activeLayers.keys());
+                filesToRemove.forEach(file => removeLayer(file));
+                updateStatus('All layers cleared', 'info');
             }
             
             // Fit map to bounds of all layers
             function fitToBounds() {
-                if (layerBounds) {
-                    map.fitBounds(layerBounds, {
+                if (activeLayers.size === 0) {
+                    updateStatus('No active layers to fit bounds', 'warning');
+                    return;
+                }
+                
+                // Calculate combined bounds from all layers
+                let combinedBounds = null;
+                
+                activeLayers.forEach((layerInfo, filePath) => {
+                    if (layerInfo.bounds) {
+                        const [[minLng, minLat], [maxLng, maxLat]] = layerInfo.bounds;
+                        
+                        if (!combinedBounds) {
+                            combinedBounds = [[minLng, minLat], [maxLng, maxLat]];
+                        } else {
+                            combinedBounds[0][0] = Math.min(combinedBounds[0][0], minLng); // min lng
+                            combinedBounds[0][1] = Math.min(combinedBounds[0][1], minLat); // min lat
+                            combinedBounds[1][0] = Math.max(combinedBounds[1][0], maxLng); // max lng
+                            combinedBounds[1][1] = Math.max(combinedBounds[1][1], maxLat); // max lat
+                        }
+                    }
+                });
+                
+                if (combinedBounds) {
+                    // Fit to calculated bounds
+                    map.fitBounds(combinedBounds, {
                         padding: 50,
-                        maxZoom: 14
+                        maxZoom: 15
                     });
+                    updateStatus('Fitted map to data bounds', 'success');
+                } else {
+                    // Fallback for PMTiles or when bounds can't be calculated
+                    map.flyTo({
+                        center: [-98.5795, 39.8283], // Center of USA
+                        zoom: 4
+                    });
+                    updateStatus('Fitted map to default bounds (no layer bounds available)', 'info');
                 }
             }
             
@@ -182,17 +479,17 @@
                 return color;
             }
             
-            // Layer toggle event handlers
-            document.querySelectorAll('.layer-toggle').forEach((checkbox, index) => {
-                checkbox.addEventListener('change', function() {
-                    const layerId = `pmtiles-layer-${index}`;
-                    const outlineLayerId = `${layerId}-outline`;
-                    const visibility = this.checked ? 'visible' : 'none';
-                    
-                    map.setLayoutProperty(layerId, 'visibility', visibility);
-                    map.setLayoutProperty(outlineLayerId, 'visibility', visibility);
-                });
+            // Event listeners
+            document.getElementById('pmtiles-select').addEventListener('change', function() {
+                if (this.value) {
+                    addPMTilesLayer(this.value);
+                    this.value = ''; // Reset selection
+                }
             });
+            
+            document.getElementById('refresh-files').addEventListener('click', loadPMTilesFiles);
+            document.getElementById('fit-bounds').addEventListener('click', fitToBounds);
+            document.getElementById('clear-layers').addEventListener('click', clearAllLayers);
             
             // Style selector
             document.getElementById('style-select').addEventListener('change', function() {
@@ -200,14 +497,24 @@
                 
                 // Re-add layers after style change
                 map.once('styledata', function() {
-                    pmtilesFiles.forEach((pmtilesFile, index) => {
-                        addPMTilesLayer(pmtilesFile, index);
+                    const layersToReAdd = Array.from(activeLayers.keys());
+                    activeLayers.clear();
+                    layerCounter = 0;
+                    
+                    // Clear UI
+                    document.getElementById('layer-list').innerHTML = '';
+                    
+                    // Re-add layers
+                    layersToReAdd.forEach(file => {
+                        addPMTilesLayer(file);
                     });
                 });
             });
             
-            // Fit bounds button
-            document.getElementById('fit-bounds').addEventListener('click', fitToBounds);
+            // Initialize
+            map.on('load', function() {
+                loadPMTilesFiles();
+            });
         });
     </script>
 </body>
