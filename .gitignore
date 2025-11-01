@@ -167,7 +167,7 @@ cython_debug/
 # Input/Output directories (optional - uncomment if you don't want to track sample data)
 input/
 output/
-docs/
+#docs/
 
 # Log files
 logs/
