@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PMTiles Viewer (Static)</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/maplibre-gl@3.0.0/dist/maplibre-gl.css" rel="stylesheet" />
+  <style>
+    html, body { height: 100%; margin: 0; }
+    #map { width: 100%; height: 100vh; }
+    .sidebar { background: #f8f9fa; height: 100vh; overflow-y: auto; }
+  </style>
+</head>
+<body>
+  <div class="container-fluid">
+    <div class="row">
+      <!-- Sidebar -->
+      <div class="col-md-3 sidebar">
+        <div class="p-3">
+          <h2 class="h4">PMTiles Viewer</h2>
+          <p class="text-muted small">Static viewer for GitHub Pages</p>
+
+          <!-- Dataset Selector (from manifest) -->
+          <div class="mb-3">
+            <label class="form-label">Datasets</label>
+            <div class="d-flex gap-2 mb-2">
+              <button id="refresh-datasets" class="btn btn-outline-primary btn-sm">
+                <i class="bi bi-arrow-clockwise"></i> Refresh
+              </button>
+              <span id="dataset-count" class="badge bg-secondary">0 datasets</span>
+            </div>
+            <select id="dataset-select" class="form-select mb-2">
+              <option value="">Select a dataset...</option>
+            </select>
+            <div class="form-text">
+              <small>Reads from <code>docs/data.json</code></small>
+            </div>
+          </div>
+
+          <!-- Map Style -->
+          <div class="mb-3">
+            <label class="form-label">Map Style</label>
+            <select id="style-select" class="form-select">
+              <option value="streets">Streets</option>
+              <option value="satellite">Satellite</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </div>
+
+          <!-- Active Layers -->
+          <div class="mb-3">
+            <label class="form-label">Active Layers</label>
+            <div id="layer-list" class="list-group"></div>
+            <div class="form-text mt-2">
+              <small>Select a dataset to add layers</small>
+            </div>
+          </div>
+
+          <div class="mb-3">
+            <button id="fit-bounds" class="btn btn-primary w-100">Fit to Data</button>
+            <button id="clear-layers" class="btn btn-outline-danger w-100 mt-2">Clear All Layers</button>
+          </div>
+
+          <!-- Status Panel -->
+          <div class="mt-4">
+            <h6>Status</h6>
+            <div id="status-panel" class="alert alert-info">
+              <small>Ready to load datasets</small>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Map Container -->
+      <div class="col-md-9 p-0">
+        <div id="map"></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@3.0.0/dist/maplibre-gl.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/pmtiles@2.7.0/dist/index.js"></script>
+  <script>
+    // Register PMTiles protocol
+    const protocol = new pmtiles.Protocol();
+    maplibregl.addProtocol("pmtiles", protocol.tile);
+
+    // Map styles
+    const styles = {
+      streets: 'https://demotiles.maplibre.org/style.json',
+      satellite: 'https://api.maptiler.com/maps/hybrid/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL',
+      dark: 'https://api.maptiler.com/maps/darkmatter/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL',
+      light: 'https://api.maptiler.com/maps/bright/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL'
+    };
+
+    // Initialize map
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: styles.streets,
+      center: [0, 0],
+      zoom: 2
+    });
+    map.addControl(new maplibregl.NavigationControl());
+    map.addControl(new maplibregl.ScaleControl());
+
+    // Global state
+    let layerCounter = 0;
+    const activeLayers = new Map();
+    let layerBounds = null;
+
+    function updateStatus(message, type = 'info') {
+      const statusPanel = document.getElementById('status-panel');
+      statusPanel.className = `alert alert-${type}`;
+      statusPanel.innerHTML = `<small>${message}</small>`;
+    }
+
+    // Load datasets manifest
+    async function loadDatasets() {
+      try {
+        updateStatus('Loading datasets...', 'info');
+        const resp = await fetch('data.json');
+        const manifest = await resp.json();
+        const datasets = [];
+        (manifest.geojson || []).forEach(d => datasets.push({ type: 'geojson', name: d.name, url: d.url }));
+        (manifest.pmtiles || []).forEach(d => datasets.push({ type: 'pmtiles', name: d.name, url: d.url }));
+
+        const select = document.getElementById('dataset-select');
+        select.innerHTML = '<option value="">Select a dataset...</option>';
+        datasets.forEach((d, idx) => {
+          const opt = document.createElement('option');
+          opt.value = `${d.type}:${d.url}`;
+          opt.textContent = d.name;
+          select.appendChild(opt);
+        });
+        document.getElementById('dataset-count').textContent = `${datasets.length} datasets`;
+        updateStatus(`Loaded ${datasets.length} datasets from manifest`, 'success');
+      } catch (e) {
+        console.error('Error loading manifest:', e);
+        updateStatus('Error loading datasets manifest', 'danger');
+      }
+    }
+
+    document.getElementById('refresh-datasets').addEventListener('click', loadDatasets);
+
+    // Style switching
+    document.getElementById('style-select').addEventListener('change', function() {
+      const styleKey = this.value;
+      map.setStyle(styles[styleKey] || styles.streets);
+    });
+
+    // Add layer utilities
+    function getRandomColor() {
+      const colors = ['#6366f1','#22c55e','#ef4444','#f59e0b','#06b6d4','#a855f7'];
+      return colors[Math.floor(Math.random() * colors.length)];
+    }
+
+    function addLayerToUI(name, layerId, removeHandler) {
+      const layerList = document.getElementById('layer-list');
+      const item = document.createElement('div');
+      item.className = 'list-group-item';
+      item.id = `layer-ui-${layerId}`;
+      item.innerHTML = `
+        <div class="d-flex justify-content-between align-items-center">
+          <div class="form-check">
+            <input class="form-check-input layer-toggle" type="checkbox" value="${layerId}" id="toggle-${layerId}" checked>
+            <label class="form-check-label" for="toggle-${layerId}">${name}</label>
+          </div>
+          <button class="btn btn-outline-danger btn-sm" data-layer="${layerId}">Remove</button>
+        </div>`;
+      const btn = item.querySelector('button');
+      btn.addEventListener('click', () => removeHandler());
+      const toggle = item.querySelector('.layer-toggle');
+      toggle.addEventListener('change', (e) => {
+        const visible = e.target.checked;
+        try { map.setLayoutProperty(layerId, 'visibility', visible ? 'visible' : 'none'); } catch (err) {}
+      });
+      layerList.appendChild(item);
+    }
+
+    function addGeoJSONLayer(url) {
+      fetch(url).then(r => r.json()).then(data => {
+        const sourceId = `source-${layerCounter}`;
+        const layerId = `layer-${layerCounter}`;
+        layerCounter++;
+        map.addSource(sourceId, { type: 'geojson', data });
+        const first = data.features && data.features[0];
+        let type = 'line';
+        if (first) {
+          const g = first.geometry?.type;
+          if (g === 'Polygon' || g === 'MultiPolygon') type = 'fill';
+          else if (g === 'Point' || g === 'MultiPoint') type = 'circle';
+        }
+        const paint = type === 'fill' ? { 'fill-color': getRandomColor(), 'fill-opacity': 0.7, 'fill-outline-color': '#000' } :
+                      type === 'circle' ? { 'circle-radius': 8, 'circle-color': getRandomColor(), 'circle-opacity': 0.8, 'circle-stroke-color': '#000', 'circle-stroke-width': 2 } :
+                      { 'line-color': getRandomColor(), 'line-width': 2 };
+        map.addLayer({ id: layerId, type, source: sourceId, paint });
+        const b = getBounds(data);
+        activeLayers.set(url, { layerId, sourceId, visible: true, bounds: b });
+        addLayerToUI(url.split('/').pop(), layerId, () => removeLayer(url));
+        updateStatus(`Added GeoJSON layer`, 'success');
+      }).catch(err => {
+        console.error('Error loading GeoJSON:', err);
+        updateStatus(`Error loading GeoJSON: ${err.message}`, 'danger');
+      });
+    }
+
+    async function addPMTilesLayer(url) {
+      try {
+        const sourceId = `source-${layerCounter}`;
+        const layerId = `layer-${layerCounter}`;
+        layerCounter++;
+        const p = new pmtiles.PMTiles(url);
+        const metadata = await p.getMetadata();
+        const bounds = (metadata && Array.isArray(metadata.bounds) && metadata.bounds.length === 4)
+          ? [[metadata.bounds[0], metadata.bounds[1]], [metadata.bounds[2], metadata.bounds[3]]] : null;
+        const vectorLayers = metadata.vector_layers || [];
+        const sourceLayer = vectorLayers.length > 0 ? vectorLayers[0].id : 'default';
+        map.addSource(sourceId, { type: 'vector', url: `pmtiles://${url}` });
+        // Choose layer type by geometry hint
+        const geom = vectorLayers.length > 0 ? vectorLayers[0].geometry : 'unknown';
+        let layerCfg;
+        if (geom === 'polygon') {
+          layerCfg = { id: layerId, type: 'fill', source: sourceId, 'source-layer': sourceLayer, paint: { 'fill-color': getRandomColor(), 'fill-opacity': 0.7, 'fill-outline-color': '#000' } };
+        } else if (geom === 'point') {
+          layerCfg = { id: layerId, type: 'circle', source: sourceId, 'source-layer': sourceLayer, paint: { 'circle-radius': 6, 'circle-color': getRandomColor(), 'circle-opacity': 0.8 } };
+        } else {
+          layerCfg = { id: layerId, type: 'line', source: sourceId, 'source-layer': sourceLayer, paint: { 'line-color': getRandomColor(), 'line-width': 2, 'line-opacity': 0.8 } };
+        }
+        map.addLayer(layerCfg);
+        activeLayers.set(url, { layerId, sourceId, visible: true, bounds });
+        addLayerToUI((new URL(url)).pathname.split('/').pop(), layerId, () => removeLayer(url));
+        updateStatus('Added PMTiles layer', 'success');
+      } catch (e) {
+        console.error('Error loading PMTiles:', e);
+        updateStatus(`Error loading PMTiles: ${e.message}`, 'danger');
+      }
+    }
+
+    function getBounds(geojson) {
+      try {
+        let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+        function traverse(c) {
+          if (typeof c[0] === 'number') { const [lng, lat] = c; minLng = Math.min(minLng, lng); maxLng = Math.max(maxLng, lng); minLat = Math.min(minLat, lat); maxLat = Math.max(maxLat, lat); }
+          else c.forEach(traverse);
+        }
+        geojson.features.forEach(f => traverse(f.geometry.coordinates));
+        return [[minLng, minLat], [maxLng, maxLat]];
+      } catch (e) { return null; }
+    }
+
+    function removeLayer(key) {
+      const entry = activeLayers.get(key);
+      if (!entry) return;
+      const { layerId, sourceId } = entry;
+      try { map.removeLayer(layerId); } catch (e) {}
+      try { map.removeSource(sourceId); } catch (e) {}
+      activeLayers.delete(key);
+      const ui = document.getElementById(`layer-ui-${layerId}`);
+      if (ui) ui.remove();
+    }
+
+    // Fit to bounds across all active layers
+    document.getElementById('fit-bounds').addEventListener('click', () => {
+      try {
+        let minLng = Infinity, minLat = Infinity, maxLng = -Infinity, maxLat = -Infinity;
+        for (const [, { bounds }] of activeLayers.entries()) {
+          if (!bounds) continue;
+          minLng = Math.min(minLng, bounds[0][0]);
+          minLat = Math.min(minLat, bounds[0][1]);
+          maxLng = Math.max(maxLng, bounds[1][0]);
+          maxLat = Math.max(maxLat, bounds[1][1]);
+        }
+        if (minLng < Infinity) {
+          map.fitBounds([[minLng, minLat], [maxLng, maxLat]], { padding: 40 });
+        } else {
+          updateStatus('No bounds available from active layers', 'warning');
+        }
+      } catch (e) {
+        console.warn('Error fitting bounds:', e);
+      }
+    });
+
+    // Clear all layers
+    document.getElementById('clear-layers').addEventListener('click', function() {
+      for (const [key, { layerId, sourceId }] of activeLayers.entries()) {
+        try { map.removeLayer(layerId); } catch (e) {}
+        try { map.removeSource(sourceId); } catch (e) {}
+      }
+      activeLayers.clear();
+      document.getElementById('layer-list').innerHTML = '';
+      updateStatus('Cleared all layers', 'info');
+    });
+
+    // Dataset selection handler
+    document.getElementById('dataset-select').addEventListener('change', function() {
+      const val = this.value;
+      if (!val) return;
+      const [type, url] = val.split(':');
+      if (type === 'geojson') addGeoJSONLayer(url);
+      else if (type === 'pmtiles') addPMTilesLayer(url);
+      this.value = '';
+    });
+
+    // Initial load
+    loadDatasets();
+  </script>
+</body>
+</html>
