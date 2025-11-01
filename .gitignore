@@ -165,8 +165,9 @@ cython_debug/
 # ======================
 
 # Input/Output directories (optional - uncomment if you don't want to track sample data)
-# input/
-# output/
+input/
+output/
+docs/
 
 # Log files
 logs/
@@ -200,10 +201,10 @@ tmp/
 *.rrd
 
 # GeoJSON files (uncomment if you don't want to track converted files)
-# *.geojson
+*.geojson
 
 # PMTiles files (uncomment if you don't want to track generated tiles)
-# *.pmtiles
+*.pmtiles
 
 # MBTiles files
 # *.mbtiles
@@ -279,3 +280,6 @@ Temporary Items
 *.tar.gz
 *.rar
 *.7z
+
+# Text files
+prompt.txt
