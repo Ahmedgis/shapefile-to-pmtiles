@@ -1,0 +1,13 @@
+# Docker Python dependencies; do NOT include gdal here (use system gdal-bin)
+pyproj>=3.3.0
+flask>=2.0.0
+tqdm>=4.62.0
+pyyaml>=6.0
+concurrent-log-handler>=0.9.20
+click>=8.0.0
+python-dotenv>=0.19.0
+geojson>=2.5.0
+shapely>=1.8.0
+geopandas>=0.13.0
+# Production WSGI server for Docker
+gunicorn>=20.1.0

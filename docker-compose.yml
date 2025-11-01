@@ -1,0 +1,32 @@
+services:
+  app:
+    build: .
+    #image: shapefile-to-pmtiles-converter:latest
+    container_name: shapefile-to-pmtiles
+    depends_on:
+      - converter    
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./input:/app/input
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["gunicorn", "-w", "2", "-b", "0.0.0.0:5000", "shapefile_to_pmtile:app"]
+  converter:
+    build: .
+    container_name: shapefile-to-pmtiles-converter
+    volumes:
+      - ./input:/app/input
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - HOST_UID=1000
+      - HOST_GID=1000
+      # - HOST_UID=${HOST_UID}
+      # - HOST_GID=${HOST_GID}
+    command: ["python3", "shapefile_to_pmtile.py", "--input", "/app/input", "--output", "/app/output", "--post-chown"]
