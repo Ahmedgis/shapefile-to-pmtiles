@@ -33,7 +33,7 @@ services:
       - HOST_GID=1000
       # - HOST_UID=${HOST_UID}
       # - HOST_GID=${HOST_GID}
-    command: ["python3", "shapefile_to_pmtile.py", "--input", "/app/input", "--output", "/app/output", "--post-chown", "--min-zoom", "4", "--max-zoom", "20"]
+    command: ["python3", "shapefile_to_pmtile.py", "--input", "/app/input", "--output", "/app/output", "--post-chown", "--min-zoom", "4", "--max-zoom", "22"]
 
 networks:
   pmtiles-network:
