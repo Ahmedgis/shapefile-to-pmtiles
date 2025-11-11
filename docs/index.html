@@ -105,6 +105,33 @@
     });
     map.addControl(new maplibregl.NavigationControl());
     map.addControl(new maplibregl.ScaleControl());
+    // Add zoom level control (top-left)
+    class ZoomLevelControl {
+      onAdd(map) {
+        this._map = map;
+        this._container = document.createElement('div');
+        this._container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+        const label = document.createElement('span');
+        label.style.padding = '0 8px';
+        label.style.fontSize = '12px';
+        this._container.appendChild(label);
+        const update = () => {
+          const z = map.getZoom();
+          label.textContent = `Zoom: ${z.toFixed(2)} (0–24)`;
+        };
+        map.on('zoom', update);
+        map.on('load', update);
+        update();
+        this._cleanup = () => { map.off('zoom', update); map.off('load', update); };
+        return this._container;
+      }
+      onRemove() {
+        if (this._cleanup) this._cleanup();
+        this._container.remove();
+        this._map = undefined;
+      }
+    }
+    map.addControl(new ZoomLevelControl(), 'top-left');
 
     // Global state
     let layerCounter = 0;
@@ -157,7 +184,7 @@
       return colors[Math.floor(Math.random() * colors.length)];
     }
 
-    function addLayerToUI(name, layerId, removeHandler) {
+    function addLayerToUI(name, layerId, removeHandler, infoText = '') {
       const layerList = document.getElementById('layer-list');
       const item = document.createElement('div');
       item.className = 'list-group-item';
@@ -166,7 +193,7 @@
         <div class="d-flex justify-content-between align-items-center">
           <div class="form-check">
             <input class="form-check-input layer-toggle" type="checkbox" value="${layerId}" id="toggle-${layerId}" checked>
-            <label class="form-check-label" for="toggle-${layerId}">${name}</label>
+            <label class="form-check-label" for="toggle-${layerId}">${name}${infoText ? ` <small class=\"text-muted\">(${infoText})</small>` : ''}</label>
           </div>
           <button class="btn btn-outline-danger btn-sm" data-layer="${layerId}">Remove</button>
         </div>`;
@@ -218,6 +245,8 @@
           ? [[metadata.bounds[0], metadata.bounds[1]], [metadata.bounds[2], metadata.bounds[3]]] : null;
         const vectorLayers = metadata.vector_layers || [];
         const sourceLayer = vectorLayers.length > 0 ? vectorLayers[0].id : 'default';
+        const minZ = metadata.minzoom ?? metadata.min_zoom;
+        const maxZ = metadata.maxzoom ?? metadata.max_zoom;
         map.addSource(sourceId, { type: 'vector', url: `pmtiles://${url}` });
         // Choose layer type by geometry hint
         const geom = vectorLayers.length > 0 ? vectorLayers[0].geometry : 'unknown';
@@ -230,8 +259,8 @@
           layerCfg = { id: layerId, type: 'line', source: sourceId, 'source-layer': sourceLayer, paint: { 'line-color': getRandomColor(), 'line-width': 2, 'line-opacity': 0.8 } };
         }
         map.addLayer(layerCfg);
-        activeLayers.set(url, { layerId, sourceId, visible: true, bounds });
-        addLayerToUI((new URL(url)).pathname.split('/').pop(), layerId, () => removeLayer(url));
+        activeLayers.set(url, { layerId, sourceId, visible: true, bounds, minZ, maxZ });
+        addLayerToUI((new URL(url)).pathname.split('/').pop(), layerId, () => removeLayer(url), (minZ !== undefined && maxZ !== undefined) ? `z${minZ}–${maxZ}` : 'z?–?');
         updateStatus('Added PMTiles layer', 'success');
       } catch (e) {
         console.error('Error loading PMTiles:', e);
