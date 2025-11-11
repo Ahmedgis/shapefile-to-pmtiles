@@ -5,8 +5,8 @@ default_max_zoom: 14
 reproject_to_web_mercator: True
 tippecanoe_args:
   - --read-parallel                   # Use multiple threads to read different parts of each GeoJSON input file at once.
-  - --maximum-zoom=g                  # Guess what is probably a reasonable maxzoom based on the spacing of features.
-  - --drop-densest-as-needed          # Drop features that are too dense to be shown at the current zoom level.
+  #- --maximum-zoom=g                  # Guess what is probably a reasonable maxzoom based on the spacing of features.
+  #- --drop-densest-as-needed          # Drop features that are too dense to be shown at the current zoom level.
   - --extend-zooms-if-still-dropping  # If even the tiles at high zoom levels are too big, keep adding zoom levels until one is reached that can represent all the features
   - --simplify-only-low-zooms         # Don't simplify lines and polygons at maxzoom (but do simplify at lower zooms)
   - --detect-shared-borders           # In the manner of TopoJSON, detect borders that are shared between multiple polygons and simplify them identically in each polygon.
