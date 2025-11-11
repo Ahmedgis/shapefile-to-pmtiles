@@ -3,6 +3,8 @@ services:
     build: .
     #image: shapefile-to-pmtiles-converter:latest
     container_name: shapefile-to-pmtiles
+    networks:
+      - pmtiles-network     
     depends_on:
       - converter    
     ports:
@@ -18,6 +20,8 @@ services:
   converter:
     build: .
     container_name: shapefile-to-pmtiles-converter
+    networks:
+      - pmtiles-network    
     volumes:
       - ./input:/app/input
       - ./output:/app/output
@@ -29,4 +33,9 @@ services:
       - HOST_GID=1000
       # - HOST_UID=${HOST_UID}
       # - HOST_GID=${HOST_GID}
-    command: ["python3", "shapefile_to_pmtile.py", "--input", "/app/input", "--output", "/app/output", "--post-chown"]
+    command: ["python3", "shapefile_to_pmtile.py", "--input", "/app/input", "--output", "/app/output", "--post-chown", "--min-zoom", "4", "--max-zoom", "20"]
+
+networks:
+  pmtiles-network:
+    name: npm-network
+    external: true
