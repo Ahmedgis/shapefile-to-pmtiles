@@ -1,7 +1,7 @@
 default_input: "./input"
 default_output: "./output"
 default_min_zoom: 4
-default_max_zoom: 14
+default_max_zoom: 22
 reproject_to_web_mercator: True
 tippecanoe_args:
   - --read-parallel                   # Use multiple threads to read different parts of each GeoJSON input file at once.
